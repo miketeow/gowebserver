@@ -31,7 +31,17 @@ func (cfg *apiConfig) metricsHandler(w http.ResponseWriter, r *http.Request) {
 	//Write the number of hits as plain text
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	w.WriteHeader(http.StatusOK)
-	w.Write([]byte(fmt.Sprintf("Hits: %d", cfg.fileserverHits)))
+
+	htmlResponse := fmt.Sprintf(`
+	<html>
+		<body>
+			<h1>Welcome, Chirpy Admin</h1>
+			<p>Chirpy has been visited %d times!</p>
+		</body>
+	</html>
+	`, cfg.fileserverHits)
+
+	w.Write([]byte(htmlResponse))
 }
 
 func (cfg *apiConfig) resetHandler(w http.ResponseWriter, r *http.Request) {
@@ -63,7 +73,7 @@ func main() {
 	mux := http.NewServeMux()
 
 	//Readiness endpoint at /healthz, restrict to GET method only
-	mux.HandleFunc("GET /healthz", healthzHandler)
+	mux.HandleFunc("GET /api/healthz", healthzHandler)
 
 	//File server to serve files from the current directory under /app/*
 	fileServer := http.FileServer(http.Dir("."))
@@ -71,9 +81,9 @@ func main() {
 	mux.Handle("/app/", apiCfg.middlewareMetricsInc(http.StripPrefix("/app", fileServer)))
 
 	//Metrics endpoint at /metrics, restrict to GET method only
-	mux.HandleFunc("GET /metrics", apiCfg.metricsHandler)
+	mux.HandleFunc("GET /admin/metrics", apiCfg.metricsHandler)
 
-	mux.HandleFunc("/reset",apiCfg.resetHandler)
+	mux.HandleFunc("/api/reset",apiCfg.resetHandler)
 
 	server := &http.Server{
 		Addr:    ":8080",
