@@ -1,14 +1,42 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
+	"strings"
 	"sync"
 )
 
 type apiConfig struct {
 	fileserverHits int
 	mu sync.Mutex
+}
+
+func respondWithError(w http.ResponseWriter, status int, message string) {
+	w.WriteHeader(status)
+	json.NewEncoder(w).Encode(map[string]string{"error": message})
+}
+
+func respondWithJSON(w http.ResponseWriter, status int, payload interface{}) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	json.NewEncoder(w).Encode(payload)
+}
+
+func replaceProfaneWords(text string, profaneWords []string) string {
+	words := strings.Fields(text)
+    for i, word := range words {
+        loweredWord := strings.ToLower(word)
+        for _, profaneWord := range profaneWords {
+            if loweredWord == strings.ToLower(profaneWord) {
+                words[i] = "****"
+                break
+            }
+        }
+    }
+    return strings.Join(words, " ")
 }
 
 func (cfg *apiConfig) middlewareMetricsInc(next http.Handler) http.Handler {
@@ -65,6 +93,39 @@ func healthzHandler(w http.ResponseWriter, _ *http.Request) {
 	w.Write([]byte("OK"))
 }
 
+func (cfg *apiConfig) validateChirpHandler(w http.ResponseWriter, r *http.Request) {
+	// Only allow POST requests
+	if r.Method != http.MethodPost {
+		respondWithError(w, http.StatusMethodNotAllowed, "Method not allowed")
+		return
+	}
+
+	type chirpRequest struct {
+		Body string `json:"body"`
+	}
+
+	decoder := json.NewDecoder(r.Body)
+	params := &chirpRequest{}
+
+	err := decoder.Decode(params)
+	if err != nil {
+		log.Printf("Error decoding JSON: %s", err)
+		respondWithError(w, http.StatusBadRequest, "Something went wrong")
+		return
+	}
+
+	if len(params.Body) > 140{
+		respondWithError(w, http.StatusBadRequest, "Chirp is too long")
+	}
+
+	profaneWords := []string{"kerfuffle","sharbert","fornax"}
+
+	cleanedBody := replaceProfaneWords(params.Body, profaneWords)
+
+	respondWithJSON(w, http.StatusOK, map[string]string{"cleaned_body": cleanedBody})
+
+}
+
 func main() {
 
 	// Initialize the API configuration
@@ -84,6 +145,8 @@ func main() {
 	mux.HandleFunc("GET /admin/metrics", apiCfg.metricsHandler)
 
 	mux.HandleFunc("/api/reset",apiCfg.resetHandler)
+
+	mux.HandleFunc("/api/validate_chirp",apiCfg.validateChirpHandler)
 
 	server := &http.Server{
 		Addr:    ":8080",
